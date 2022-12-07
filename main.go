@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -56,9 +58,7 @@ func main() {
 		expectedPassword, ok := users[credentials.Username]
 
 		if !ok || expectedPassword != credentials.Password {
-			ctx.JSON(http.StatusUnauthorized, gin.H{
-				"code": 403,
-			})
+			ctx.Writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
@@ -75,13 +75,46 @@ func main() {
 		tokenString, err := token.SignedString(jwtKey)
 
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-			})
+			ctx.Writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		ctx.SetCookie("token", tokenString, expirationTime.Second(), "/", "localhost", false, true)
+		ctx.JSON(http.StatusOK, gin.H{
+			"token": tokenString,
+		})
+	})
+
+	router.GET("/home", func(ctx *gin.Context) {
+		authHeader := ctx.GetHeader("Authorization")
+		if authHeader == "" {
+			ctx.Writer.WriteHeader(http.StatusBadRequest)
+		}
+		tokenString := strings.Split(authHeader, " ")[1]
+
+		claims := &Claims{}
+
+		tkn, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
+			return jwtKey, nil
+		})
+		if err != nil {
+			fmt.Println("Err 2")
+			if err == jwt.ErrSignatureInvalid {
+				ctx.Writer.WriteHeader(http.StatusUnauthorized) //signing method invalid
+				return
+			}
+			ctx.Writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if !tkn.Valid {
+			fmt.Println("Err 3")
+			ctx.Writer.WriteHeader(http.StatusUnauthorized) //secret key invalid
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{
+			"message": fmt.Sprintf("Hello %s", claims.Username),
+		})
 	})
 
 	router.Run(":3000")
